@@ -485,6 +485,22 @@ func GenerateCloudConfig(configFile *ConfigFile) (cloudConfig *CloudConfig, err 
 	return cloudConfig, err
 }
 
+// clientOptions returns GCP API client options for authentication.
+// Uses the provided TokenSource and appends WithUniverseDomain when
+// a non-default universe domain is detected from default credentials.
+func clientOptions(ts oauth2.TokenSource) []option.ClientOption {
+	opts := []option.ClientOption{option.WithTokenSource(ts)}
+	creds, err := google.FindDefaultCredentials(context.Background(), compute.CloudPlatformScope)
+	if err == nil {
+		if ud, err := creds.GetUniverseDomain(); err == nil {
+			opts = append(opts, option.WithUniverseDomain(ud))
+		} else {
+			klog.Warningf("Failed to get universe domain from credentials: %v", err)
+		}
+	}
+	return opts
+}
+
 // CreateGCECloud creates a Cloud object using the specified parameters.
 // If no networkUrl is specified, loads networkName via rest call.
 // If no tokenSource is specified, uses oauth2.DefaultTokenSource.
@@ -503,19 +519,21 @@ func CreateGCECloud(config *CloudConfig) (*Cloud, error) {
 		config.NetworkProjectID = config.ProjectID
 	}
 
-	service, err := compute.NewService(context.Background(), option.WithTokenSource(config.TokenSource))
+	clientOpts := clientOptions(config.TokenSource)
+
+	service, err := compute.NewService(context.Background(), clientOpts...)
 	if err != nil {
 		return nil, err
 	}
 	service.UserAgent = userAgent
 
-	serviceBeta, err := computebeta.NewService(context.Background(), option.WithTokenSource(config.TokenSource))
+	serviceBeta, err := computebeta.NewService(context.Background(), clientOpts...)
 	if err != nil {
 		return nil, err
 	}
 	serviceBeta.UserAgent = userAgent
 
-	serviceAlpha, err := computealpha.NewService(context.Background(), option.WithTokenSource(config.TokenSource))
+	serviceAlpha, err := computealpha.NewService(context.Background(), clientOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -533,7 +551,7 @@ func CreateGCECloud(config *CloudConfig) (*Cloud, error) {
 		}
 	}
 
-	containerService, err := container.NewService(context.Background(), option.WithTokenSource(config.TokenSource))
+	containerService, err := container.NewService(context.Background(), clientOpts...)
 	if err != nil {
 		return nil, err
 	}
